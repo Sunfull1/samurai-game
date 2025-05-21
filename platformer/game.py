@@ -267,7 +267,6 @@ while running:
              player.y + player.height > enemy.y):
             print("Game Over! Final Score:", player.score)
             running = False    if game_state == PLAYING:
-                
         # Handle player movement
         keys = pygame.key.get_pressed()
         player.vel_x = 0

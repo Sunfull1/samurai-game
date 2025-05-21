@@ -12,12 +12,14 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
+GOLD = (255, 215, 0)  # Золотой цвет для сообщения о победе
 
 # Game states
 MENU = 0
 PLAYING = 1
 GAME_OVER = 2
 DYING = 3
+WIN = 4  # Новое состояние для победы
 
 # Player settings
 PLAYER_WIDTH = 60
@@ -37,12 +39,6 @@ ENEMY_WIDTH = 60
 ENEMY_HEIGHT = 60
 ENEMY_SPEED = 2
 ENEMY_PATROL_RANGE = 150
-
-# Game states
-MENU = 0
-PLAYING = 1
-GAME_OVER = 2
-DYING = 3
 
 # Animation settings
 ANIMATION_SPEED = 0.2

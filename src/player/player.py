@@ -2,6 +2,18 @@ import pygame
 import sys
 import os
 
+# Helper function to get correct resource path
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Not running in a PyInstaller bundle
+        # For player.py, the images folder is two levels up from src/player/
+        base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    return os.path.join(base_path, relative_path)
+
 # Add the game root directory to Python path
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 from src.constants import *
@@ -49,54 +61,83 @@ class Player:
         # Загрузка анимаций ходьбы вправо
         for i in range(1, 9):
             try:
-                path = os.path.join('images', 'player_run', 'player_right', f'player_right{i}.png')
-                if os.path.exists(path):
-                    image = pygame.image.load(path)
-                    image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
-                    animations['right'].append(image)
+                path = resource_path(os.path.join('images', 'player_run', 'player_right', f'player_right{i}.png'))
+                # if os.path.exists(path): # This check is less reliable with _MEIPASS
+                image = pygame.image.load(path)
+                image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                animations['right'].append(image)
             except Exception as e:
                 print(f"Ошибка загрузки {path}: {e}")
         
         # Загрузка анимаций ходьбы влево
         for i in range(1, 9):
             try:
-                path = os.path.join('images', 'player_run', 'player_left', f'player_left{i}.png')
-                if os.path.exists(path):
-                    image = pygame.image.load(path)
-                    image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
-                    animations['left'].append(image)
+                path = resource_path(os.path.join('images', 'player_run', 'player_left', f'player_left{i}.png'))
+                # if os.path.exists(path):
+                image = pygame.image.load(path)
+                image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                animations['left'].append(image)
             except Exception as e:
                 print(f"Ошибка загрузки {path}: {e}")
         
         # Загрузка анимаций прыжка вправо
         for i in range(1, 5):
             try:
-                path = os.path.join('images', 'player_jump', 'jumpr', f'Jump{i}r.png')
-                if os.path.exists(path):
-                    image = pygame.image.load(path)
-                    image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
-                    animations['jump_right'].append(image)
+                path = resource_path(os.path.join('images', 'player_jump', 'jumpr', f'Jump{i}r.png'))
+                # if os.path.exists(path):
+                image = pygame.image.load(path)
+                image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                animations['jump_right'].append(image)
+            except Exception as e:
+                print(f"Ошибка загрузки {path}: {e}")
+          # Загрузка анимаций прыжка влево
+        for i in range(1, 5):
+            try:
+                path = resource_path(os.path.join('images', 'player_jump', 'jumpl', f'Jump{i}l.png'))
+                # if os.path.exists(path):
+                image = pygame.image.load(path)
+                image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                animations['jump_left'].append(image)
             except Exception as e:
                 print(f"Ошибка загрузки {path}: {e}")
         
-        # Загрузка анимаций прыжка влево
-        for i in range(1, 5):
+        # Загрузка анимаций атаки
+        attack_files = [
+            'Attack1r.png',
+            'Attack2.png',
+            'Attack3.png',
+            'Attack4.png'
+        ]
+        for i, filename in enumerate(attack_files):
             try:
-                path = os.path.join('images', 'player_jump', 'jumpl', f'Jump{i}l.png')
-                if os.path.exists(path):
-                    image = pygame.image.load(path)
-                    image = pygame.transform.scale(image, (PLAYER_WIDTH, PLAYER_HEIGHT))
-                    animations['jump_left'].append(image)
+                path = resource_path(os.path.join('images', 'player_Attack', 'Attak', filename))
+                # if os.path.exists(path):
+                # Загружаем исходное изображение
+                original_image = pygame.image.load(path)
+                
+                # Определяем размеры, сохраняя пропорции
+                orig_width, orig_height = original_image.get_size()
+                scale_factor = PLAYER_HEIGHT / orig_height  # Масштабируем по высоте персонажа
+                attack_width = int(orig_width * scale_factor)
+                attack_height = PLAYER_HEIGHT
+                
+                # Масштабируем с сохранением пропорций
+                image = pygame.transform.scale(original_image, (attack_width, attack_height))
+                animations['attack_right'].append(image)
+                
+                # Зеркально отображаем для атаки влево
+                flipped_image = pygame.transform.flip(image, True, False)
+                animations['attack_left'].append(flipped_image)
+                print(f"Успешно загружена анимация атаки: {filename} (размер: {attack_width}x{attack_height})")
             except Exception as e:
-                print(f"Ошибка загрузки {path}: {e}")
+                print(f"Ошибка загрузки анимации атаки {filename}: {e}")
         
         # Создаем изображения по умолчанию
         for key in animations:
             if not animations[key]:
                 default_image = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT))
                 default_image.fill(BLUE)
-                animations[key] = [default_image]
-        
+                animations[key] = [default_image]        
         return animations
     
     def move(self):
@@ -123,7 +164,21 @@ class Player:
         if current_time - self.last_update >= self.frame_delay:
             self.last_update = current_time
             
-            if self.jumping:
+            # Если игрок атакует, показываем анимацию атаки
+            if self.is_attacking:
+                # Анимация атаки имеет приоритет над другими анимациями
+                attack_key = 'attack_right' if self.facing_right else 'attack_left'
+                if self.animations[attack_key]:
+                    attack_frames = len(self.animations[attack_key])
+                    # Увеличиваем счетчик кадров
+                    self.current_frame = (self.current_frame + 1) % attack_frames
+                    self.current_image = self.animations[attack_key][self.current_frame]
+                    
+                    # Если достигли последнего кадра, заканчиваем атаку
+                    if self.current_frame == attack_frames - 1:
+                        self.is_attacking = False
+                        self.current_frame = 0
+            elif self.jumping:
                 # Анимация прыжка
                 jump_key = 'jump_right' if self.facing_right else 'jump_left'
                 if self.animations[jump_key]:
@@ -135,9 +190,8 @@ class Player:
                 if self.animations[animation_key]:
                     self.current_frame = (self.current_frame + 1) % len(self.animations[animation_key])
                     self.current_image = self.animations[animation_key][self.current_frame]
-            else:
-                # Анимация покоя (первый кадр анимации бега)
-                animation_key = 'right' if self.facing_right else 'left'
+            else:                # Анимация покоя (первый кадр анимации бега)
+                animation_key = 'right' if self.facing_right else 'left'                
                 if self.animations[animation_key]:
                     self.current_image = self.animations[animation_key][0]
     
@@ -145,7 +199,26 @@ class Player:
         # Рисуем игрока с учетом камеры
         screen_x = self.x - camera.camera.x
         screen_y = self.y
-        screen.blit(self.current_image, (screen_x, screen_y))
+        
+        # При атаке учитываем возможное изменение размеров анимации
+        if self.is_attacking:
+            # Центрируем изображение атаки по горизонтали относительно позиции игрока
+            image_width = self.current_image.get_width()
+            
+            # Регулировка позиции в зависимости от направления атаки
+            if self.facing_right:
+                attack_x = screen_x  # Атака вправо от текущей позиции
+            else:
+                attack_x = screen_x - (image_width - self.width)  # Атака влево
+            
+            # Отрисовка анимации атаки
+            screen.blit(self.current_image, (attack_x, screen_y))
+            
+            # Для отладки можно нарисовать рамку
+            # pygame.draw.rect(screen, RED, (screen_x, screen_y, self.width, self.height), 1)
+        else:
+            # Обычная отрисовка
+            screen.blit(self.current_image, (screen_x, screen_y))
         
         # Отображаем счет
         font = pygame.font.Font(None, 36)
@@ -153,4 +226,8 @@ class Player:
         screen.blit(score_text, (10, 10))
     
     def start_attack(self):
-        self.is_attacking = True
+        # Начинаем атаку только если сейчас не атакуем
+        if not self.is_attacking:
+            self.is_attacking = True
+            self.current_frame = 0  # Сбрасываем счетчик кадров для анимации атаки
+            print("Игрок начал атаку!")

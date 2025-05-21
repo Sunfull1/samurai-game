@@ -2,6 +2,17 @@ import pygame
 import sys
 import os
 
+# Helper function to get correct resource path
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Not running in a PyInstaller bundle
+        base_path = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(base_path, relative_path)
+
 # Add the directory containing main.py to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -11,7 +22,8 @@ from src.world.camera import Camera
 from src.world.platform import Platform
 from src.enemies.enemy import Enemy
 from src.ui.menu import Menu
-from src.ui.game_over import GameOver
+from src.ui.game_over_fixed import GameOver
+from src.ui.win_screen import WinScreen
 
 class Game:
     def __init__(self):
@@ -26,7 +38,7 @@ class Game:
         # Load background and textures
         print("Загрузка фона...")
         try:
-            self.background = pygame.image.load(os.path.join('images', 'backgrownd.jpg'))
+            self.background = pygame.image.load(resource_path(os.path.join('images', 'backgrownd.jpg')))
             self.background = pygame.transform.scale(self.background, (WIDTH, HEIGHT))
         except Exception as e:
             print(f"Ошибка при загрузке фона: {e}")
@@ -36,29 +48,34 @@ class Game:
         # Загрузка текстур платформ с обработкой ошибок
         print("Загрузка текстур платформ...")
         try:
-            platform_files = ['platform1.png', 'platform2.png', 'platform3.png']
+            platform_files = [
+                'platform1.png',
+                'platform2.png',
+                'platform3.png'
+            ]
             self.platform_textures = []
-            root_dir = os.path.dirname(os.path.abspath(__file__))
-            
             for filename in platform_files:
                 try:
-                    img_path = os.path.join(root_dir, 'images', 'city', filename)
+                    img_path = resource_path(os.path.join('images', 'city', filename))
                     print(f"Пытаемся загрузить: {img_path}")
-                    if os.path.exists(img_path):
+                    if os.path.exists(img_path): # This check might be less reliable with _MEIPASS
                         texture = pygame.image.load(img_path)
-                        texture = pygame.transform.scale(texture, (PLATFORM_WIDTH, PLATFORM_HEIGHT))
                         self.platform_textures.append(texture)
                         print(f"Успешно загружена текстура: {filename}")
-                    else:
-                        print(f"Файл не найден: {img_path}")
                 except Exception as e:
                     print(f"Не удалось загрузить {filename}: {e}")
             
             if not self.platform_textures:
                 raise Exception("Не удалось загрузить ни одной текстуры платформы")
+
+            # Масштабируем загруженные текстуры
+            self.platform_textures = [pygame.transform.scale(tex, (PLATFORM_WIDTH, PLATFORM_HEIGHT)) for tex in self.platform_textures]
+            print(f"Текстуры успешно масштабированы, загружено {len(self.platform_textures)} текстур")
+
         except Exception as e:
-            print(f"Ошибка при загрузке текстур платформ: {e}")
-            # Создаем текстуры по умолчанию
+            print(f"Ошибка при загрузке/масштабировании текстур платформ: {e}")
+            # Создаем текстуры по умолчанию если не удалось загрузить файлы
+            print("Создаем текстуры по умолчанию...")
             self.platform_textures = []
             for color in [(0, 255, 0), (0, 200, 0), (0, 150, 0)]:  # Разные оттенки зеленого
                 tex = pygame.Surface((PLATFORM_WIDTH, PLATFORM_HEIGHT))
@@ -73,8 +90,9 @@ class Game:
         # Create UI elements
         self.menu = Menu()
         self.game_over_screen = GameOver()
+        self.win_screen = WinScreen()
         print("UI elements created")
-
+        
     def init_game_objects(self):
         self.player = Player(50, HEIGHT - 100)
         self.camera = Camera(WIDTH, HEIGHT)
@@ -116,15 +134,14 @@ class Game:
             Enemy(800, HEIGHT - 190),
             Enemy(1200, HEIGHT - 80),
             Enemy(1600, HEIGHT - 290),
-            Enemy(2000, HEIGHT - 80),
-            Enemy(2400, HEIGHT - 340),
+            Enemy(2000, HEIGHT - 80),            Enemy(2400, HEIGHT - 340),
             Enemy(2800, HEIGHT - 290),
         ]
-
+        
     def reset_game(self):
         self.game_state = PLAYING
         self.init_game_objects()
-
+        
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -138,6 +155,18 @@ class Game:
                 elif self.game_state == GAME_OVER and self.game_over_screen.handle_click(event.pos):
                     print("Restarting game from game over")
                     self.reset_game()
+                elif self.game_state == WIN and self.win_screen.handle_click(event.pos):
+                    print("Starting a new game after win")
+                    self.reset_game()
+                
+            # Обновляем состояние кнопок для эффекта наведения
+            mouse_pos = pygame.mouse.get_pos()
+            if self.game_state == MENU:
+                self.menu.start_button.update(mouse_pos)
+            elif self.game_state == GAME_OVER:
+                self.game_over_screen.retry_button.update(mouse_pos)
+            elif self.game_state == WIN:
+                self.win_screen.retry_button.update(mouse_pos)
             
             if event.type == pygame.KEYDOWN and self.game_state == PLAYING:
                 if event.key == pygame.K_SPACE and not self.player.jumping:
@@ -145,9 +174,25 @@ class Game:
                     self.player.vel_y = self.player.jump_power
                     self.player.jumping = True
                     self.player.on_ground = False
+                # Добавляем обработку атаки по кнопке Q
                 elif event.key == pygame.K_q:
                     print("Player attacking")
                     self.player.start_attack()
+                    
+                    # Проверяем, находятся ли враги в зоне поражения
+                    for enemy in self.enemies:
+                        if enemy.alive:
+                            # Определяем область атаки в зависимости от направления игрока
+                            attack_x_min = self.player.x - ATTACK_RANGE if not self.player.facing_right else self.player.x
+                            attack_x_max = self.player.x if not self.player.facing_right else self.player.x + self.player.width + ATTACK_RANGE
+                            
+                            # Проверяем, находится ли враг в зоне атаки
+                            if (enemy.x + enemy.width > attack_x_min and 
+                                enemy.x < attack_x_max and
+                                abs(enemy.y - self.player.y) < PLAYER_HEIGHT):
+                                print(f"Enemy hit by attack at {enemy.x},{enemy.y}")
+                                enemy.alive = False
+                                self.player.score += 100
         
         return True
 
@@ -184,18 +229,25 @@ class Game:
                 if enemy.alive:
                     enemy.move(self.player)
                     
-                    # Check for collision with player
-                    if (self.player.x + self.player.width > enemy.x and 
-                        self.player.x < enemy.x + enemy.width and
-                        self.player.y + self.player.height > enemy.y and
-                        self.player.y < enemy.y + enemy.height):
-                        if self.player.vel_y > 0:  # Player is jumping on the enemy
-                            enemy.alive = False
-                            self.player.vel_y = self.player.jump_power
-                            self.player.score += 100
-                        elif not self.player.is_attacking:  # Player is not attacking
-                            print("Player died!")
-                            self.game_state = GAME_OVER
+                    # Проверяем столкновение с игроком
+                    collision_x = (self.player.x + self.player.width > enemy.x and 
+                                 self.player.x < enemy.x + enemy.width)
+                    collision_y = (self.player.y + self.player.height > enemy.y and 
+                                 self.player.y < enemy.y + enemy.height)
+                    
+                    # При любом касании врага игрок проигрывает
+                    if collision_x and collision_y:
+                        self.game_state = GAME_OVER
+                        print("Game Over - столкновение с врагом!")
+              # Проверка достижения конца уровня (правого края)
+            if self.player.x > LEVEL_WIDTH - 100:  # Когда игрок почти у правого края уровня
+                self.game_state = WIN
+                print("Вы прошли уровень и победили!")
+                
+            # Проверка падения игрока за пределы уровня
+            if self.player.y > HEIGHT + 100:  # Если игрок упал ниже экрана
+                self.game_state = GAME_OVER
+                print("Game Over - падение в пропасть!")
 
             # Update camera
             self.camera.update(self.player)
@@ -222,6 +274,8 @@ class Game:
             self.player.draw(self.screen, self.camera)
         elif self.game_state == GAME_OVER:
             self.game_over_screen.draw(self.screen, self.player.score)
+        elif self.game_state == WIN:
+            self.win_screen.draw(self.screen, self.player.score)
         
         pygame.display.flip()
 
